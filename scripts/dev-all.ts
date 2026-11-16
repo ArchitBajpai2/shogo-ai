@@ -29,7 +29,26 @@ const ROOT = resolve(import.meta.dir, "..");
 // shells too, but this stays opt-in under its own name so the two can never be
 // confused again. Override per-session with SHOGO_DEV_API_PORT=<port>.
 const API_PORT = Number(process.env.SHOGO_DEV_API_PORT ?? 8002);
-const WEB_PORT = 8081;
+
+const DEFAULT_WEB_PORT = 8081;
+
+/**
+ * The Expo web dev server port. Configurable because 8081 is also Metro's and
+ * many containers' default: when a Docker/OrbStack container publishes 8081,
+ * the listener is the container runtime's port forwarder, and clearing the
+ * port below would SIGKILL it and every container it serves.
+ */
+export function resolveDevWebPort(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.SHOGO_DEV_WEB_PORT;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_WEB_PORT;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`SHOGO_DEV_WEB_PORT is invalid: ${raw}`);
+  }
+  return port;
+}
+
+const WEB_PORT = resolveDevWebPort();
 const IS_WIN = process.platform === "win32";
 
 // ---------------------------------------------------------------------------
@@ -1030,7 +1049,7 @@ async function startDevServers() {
       "-c",
       "green,magenta",
       "bun run api:dev",
-      "bun run web:dev",
+      `bun run web:dev --port ${WEB_PORT}`,
     ],
     cwd: ROOT,
     stdout: "inherit",
