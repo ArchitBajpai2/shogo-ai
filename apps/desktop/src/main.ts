@@ -211,6 +211,15 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
+// Running a dev build next to an installed Shogo is otherwise impossible:
+// the packaged app holds the single-instance lock and owns the default
+// userData directory. An explicit override lets `bun run desktop:dev` use
+// its own state while the installed app keeps running.
+const userDataOverride = process.env.SHOGO_USER_DATA_DIR
+if (userDataOverride) {
+  app.setPath('userData', path.resolve(userDataOverride))
+}
+
 // Single-instance: keep one Shogo app process per user. Second-instance
 // currently preserves legacy behavior by focusing the primary window
 // (no auth-callback handling — sign-in is now driven by polling the cloud,

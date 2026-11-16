@@ -2,12 +2,13 @@
 // Copyright (C) 2026 Shogo Technologies, Inc.
 import { spawn, execSync, execFileSync, type ChildProcess } from './child-process'
 import { randomUUID } from 'crypto'
-import { createServer } from 'net'
 import { existsSync } from 'fs'
 import path from 'path'
 import { getBunPath, getDbPath, getWorkspacesDir, getProjectRoot, getDataDir } from './paths'
 import { DatabaseRecoveryError, detectFailedMigrations } from './db-recovery'
 import { resolveHostTier } from './runtime-memory'
+import { machineWideSweepSkipReason } from './machine-sweeps'
+import { isPortAvailable } from './port-probe'
 import { buildHostLimits, writeHostLimits } from './host-limits'
 import { resolveDesktopPath } from './login-shell-path'
 import { getOrCreateSecretsEncryptionKey } from './local-secrets'
@@ -221,20 +222,9 @@ export function setExternalApiPort(port: number): void {
   if (Number.isInteger(port) && port > 0 && port < 65536) apiPort = port
 }
 
-function checkPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = createServer()
-    server.once('error', () => resolve(false))
-    server.once('listening', () => {
-      server.close(() => resolve(true))
-    })
-    server.listen(port, '127.0.0.1')
-  })
-}
-
 async function findFreePort(): Promise<number> {
   for (let port = PREFERRED_PORT; port < PREFERRED_PORT + PORT_RANGE; port++) {
-    if (await checkPort(port)) return port
+    if (await isPortAvailable(port)) return port
   }
   throw new Error(`No free port found in range ${PREFERRED_PORT}-${PREFERRED_PORT + PORT_RANGE - 1}`)
 }
@@ -313,10 +303,11 @@ function cleanupStaleProcesses(): void {
 
   // The two sweeps below are machine-wide: they kill any QEMU and whatever
   // holds the preferred port, which on a developer machine is their own
-  // running Shogo. An e2e run uses its own data dir and picks a free port, so
-  // it must never reach for either.
-  if (process.env.SHOGO_E2E === '1' || process.env.SHOGO_E2E === 'true') {
-    console.log('[Desktop] SHOGO_E2E set — skipping machine-wide QEMU and port sweeps')
+  // running Shogo. An e2e run or an isolated dev instance uses its own data
+  // dir and picks a free port, so it must never reach for either.
+  const skipReason = machineWideSweepSkipReason(process.env)
+  if (skipReason) {
+    console.log(`[Desktop] ${skipReason} set — skipping machine-wide QEMU and port sweeps`)
     return
   }
 
